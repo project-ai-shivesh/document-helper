@@ -1,2 +1,1 @@
-# document-helper
-Document Helper - A Gen AI Application
+# LangChain Documentation Helper
