@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 
 import certifi
 from dotenv import load_dotenv
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_classic.text_splitter import RecursiveCharacterTextSplitter
 #from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
@@ -26,7 +26,10 @@ os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 
 
 embeddings = OpenAIEmbeddings(
-    model="text-embedding-3-small", show_progress_bar=False, chunk_size=50, retry_min_seconds=10
+    model="text-embedding-3-small",
+    show_progress_bar=False,
+    chunk_size=50,
+    retry_min_seconds=10,
 )
 
 #chroma = Chroma(persist_directory="chroma_db", embedding_function=embeddings)
@@ -40,13 +43,7 @@ async def main():
     """Main async function to orchestrate the entire process."""
     log_header("🚀 Starting LangChain Documentation Helper")
     log_info("Initializing components...")
-    log_success("✅ OpenAI Embeddings initialized")
-    log_success("✅ Pinecone Vector Store initialized")
-    log_success("✅ Tavily Extract initialized")
-    log_success("✅ Tavily Map initialized")
-    log_success("✅ Tavily Crawl initialized")
     log_info("All components ready! The ingestion system is prepared for document processing.")
-    log_header("*"*40+"✨ Setup Complete"+"*"*40)
 
     log_info("DOCUMENTATION INGESTION PIPELINE")
     log_info(
@@ -54,31 +51,95 @@ async def main():
         Colors.PURPLE,
     )
 
-#Crawl the documentation site
-    try:
-        res = tavily_crawl.invoke({
-            "url": "https://python.langchain.com/",
-            "max_depth": 1,
-            "extract_depth": "advanced",
-            "instructions": "content on ai agents"
-        })
+    #Crawl the documentation site
+    res =  tavily_crawl.invoke(
+        {
+        "url": "https://python.langchain.com/",
+        "max_depth": 2,
+        "extract_depth": "advanced",
+        }
+    )
 
-        # Check if the response is a string (error message) or dict (success)
-        if isinstance(res, str):
-            log_error(f"TavilyCrawl failed: {res}")
-            return
-        #all_docs = res["results"]
-        all_docs = [Document(page_content=result['raw_content'], metadat={"source": result['url']}) for result in res["results"]]
-
-        log_success(
-            f"TavilyCrawl: Successfully crawled {len(all_docs)} documents from documentation site"
+    #Convert Tavily crawl results to LangChain Document Objects
+    all_docs=[]
+    for tavily_crawl_result_item in res["results"]:
+        log_info(
+            f"TavilyCrawl: Successfully crawled {tavily_crawl_result_item['url']} from documentation site"
         )
-        # Process the documents here
-        log_info("Processing documents...")
+        all_docs.append(
+            Document(
+                page_content=tavily_crawl_result_item["raw_content"],
+                metadata={"source": tavily_crawl_result_item["url"]},
+            )
+        )
+    #Split document into Chunks
+    log_header(":::DOCUMENT CHUNKING PHASE:::")
+    log_info(
+        f"✂️  Text Splitter: Processing {len(all_docs)} documents with 4000 chunk size and 200 overlap",
+        Colors.YELLOW,
+    )
 
-    except Exception as e:
-        log_error(f"Error during crawling: {str(e)}")
-        return
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=4000, chunk_overlap=200)
+    splitted_docs = text_splitter.split_documents(all_docs)
+    log_success(
+        f"✅ Text Splitter: Created {len(splitted_docs)} chunks from {len(all_docs)} documents"
+    )
+
+    #Process documents Asynchronously
+    await index_documents_async(splitted_docs, batch_size=500)
+
+    log_header("PIPELINE COMPLETE")
+    log_success(
+        "🎉 All documents have been processed and indexed successfully!"
+    )
+    log_info("📊 Summary:", Colors.BOLD)
+    log_info(f"   • Documents extracted: {len(all_docs)}")
+    log_info(f"   • Chunks created: {len(splitted_docs)}")
+
+
+async def index_documents_async(documents: List[Document], batch_size: int = 50):
+    """Process Documents in batches and Asynchronously."""
+    log_header(":::VECTOR STORAGE PHASE:::")
+    log_info(
+        f"📚 VectorStore Indexing: Preparing to add {len(documents)} documents to vector store",
+        Colors.DARKCYAN,
+    )
+
+    #Create Batches
+    batches = [
+        documents[i : i + batch_size] for i in range(0, len(documents), batch_size)
+    ]
+    log_info(
+        f"📦 VectorStore Indexing: Split into {len(batches)} batches of {batch_size} documents each"
+    )
+
+    #Process all batches Concurrently
+    async def add_batch(batch: List[Document], batch_num: int):
+        try:
+            await vectorstore.aadd_documents(batch)
+            log_success(
+                f"VectorStore Indexing: Successfully added batch {batch_num}/{len(batches)} ({len(batch)} documents)"
+            )
+        except Exception as e:
+            log_error(f"VectorStore Indexing: Failed to add batch {batch_num} - {e}")
+            return False
+        return True
+
+    #Process batches Concurrently
+    tasks = [add_batch(batch, i +1) for i, batch in enumerate(batches)]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    #Count successful batches
+    successful = sum(1 for result in results if isinstance(result, bool) and result)
+
+    if successful == len(batches):
+        log_success(
+            f"VectorStore Indexing: All batches processed successfully! ({successful}/{len(batches)})"
+        )
+    else:
+        log_warning(
+            f"VectorStore Indexing: Processed {successful}/{len(batches)} batches successfully"
+        )
 
 
 if __name__ == "__main__":
