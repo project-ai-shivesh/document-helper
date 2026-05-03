@@ -1,5 +1,36 @@
 [project]
 name = "document-helper"
 version = "0.1.0"
-requires-python = ">=3.14"
-dependencies = []
+description = "LangChain Documentation Helper"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "beautifulsoup4",
+    "tiktoken",
+    "openai",
+    "unstructured",
+    "nltk",
+    "fastapi",
+    "jinja2",
+    "uvicorn",
+    "streamlit",
+    "streamlit-chat",
+    "tqdm",
+    "langchainhub",
+    "firecrawl-py",
+    "langchain-community",
+    "langsmith",
+    "pillow",
+    "langchain-tavily",
+    "langchain-pinecone",
+    "certifi",
+    "langchain-chroma",
+    "python-dotenv",
+    "protobuf==3.20.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ipykernel",
+    "black",
+    "isort",
+]
