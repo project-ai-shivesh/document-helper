@@ -1,5 +1,9 @@
 # LangChain Documentation Helper
 
+## App Preview
+<img width="2123" height="1340" alt="image" src="https://github.com/user-attachments/assets/85c62f6a-c222-465f-b17e-95ecd838d9d2" />
+
+
 ## Setup with UV
 
 This project uses [UV](https://github.com/astral-sh/uv) for dependency management.
