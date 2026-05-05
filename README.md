@@ -170,3 +170,149 @@ async def main():
     log_header("PIPELINE COMPLETE")
     log_success("🎉 All documents have been processed and indexed successfully!")
 ```
+
+## RAG Implementation Flow
+
+The Retrieval-Augmented Generation (RAG) pipeline enables intelligent question-answering over the indexed LangChain documentation. Below is the activity diagram and key code snippets for the RAG implementation.
+
+### Activity Diagram
+
+```mermaid
+flowchart TD
+    A[🔍 User Query] --> B[Initialize RAG Components]
+    B --> C[Create Retrieval Tool]
+    C --> D[Build Agent with Tool]
+    
+    D --> E[Process Query through Agent]
+    E --> F[Agent Decides to Use Tool]
+    F --> G[Execute Retrieval Tool]
+    
+    G --> H[Search Vector Store]
+    H --> I[Retrieve Top-K Documents]
+    I --> J[Serialize Documents]
+    
+    J --> K[Return Context to Agent]
+    K --> L[Agent Generates Answer]
+    L --> M[Extract Final Answer]
+    
+    M --> N[Extract Context Documents]
+    N --> O[Return Answer + Context]
+    
+    F -->|No Tool Needed| L
+```
+
+### Core Components Initialization
+
+```python
+# Load environment variables
+load_dotenv()
+
+# Initialize Embeddings
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+
+# Initialize Vector Store
+vectorstore = PineconeVectorStore(index_name="langchain-doc-index", embedding=embeddings)
+
+# Initialize Chat Model
+model = init_chat_model("gpt-5.2", model_provider="openai")
+```
+
+### Retrieval Tool Implementation
+
+```python
+@tool(response_format="content_and_artifact")
+def retrieve_context(query: str):
+    """Retrieve relevant documentation to help answer queries about LangChain."""
+    
+    # Retrieve top 4 similar documents
+    retrieved_docs = vectorstore.as_retriever().invoke(query, k=4)
+    
+    # Serialize documents for the model
+    serialized = "\n\n".join(
+        (f"Source: {doc.metadata.get('source', 'Unknown')}\n\nContent: {doc.page_content}")
+        for doc in retrieved_docs
+    )
+    
+    # Return both serialized content and raw documents
+    return serialized, retrieved_docs
+```
+
+### Agent Creation and Configuration
+
+```python
+def run_llm(query: str) -> Dict[str, Any]:
+    """
+    Run the RAG pipeline to answer a query using retrieved documentation.
+    """
+    
+    # Create the agent with retrieval tool
+    system_prompt = (
+        "You are a helpful AI assistant that answers questions about LangChain documentation. "
+        "You have access to a tool that retrieves relevant documentation. "
+        "Use the tool to find relevant information before answering questions. "
+        "Always cite the sources you use in your answers. "
+        "If you cannot find the answer in the retrieved documentation, say so."
+    )
+    
+    agent = create_agent(model, tools=[retrieve_context], system_prompt=system_prompt)
+    
+    # Build message list
+    messages = [{"role": "user", "content": query}]
+    
+    # Invoke the agent
+    response = agent.invoke({"messages": messages})
+    
+    # Extract the answer from the last AIMessage
+    answer = response["messages"][-1].content
+    
+    # Extract context documents from ToolMessage artifacts
+    context_docs = []
+    for message in response["messages"]:
+        if isinstance(message, ToolMessage) and hasattr(message, "artifact"):
+            if isinstance(message.artifact, list):
+                context_docs.extend(message.artifact)
+    
+    return {
+        "answer": answer,
+        "context": context_docs
+    }
+```
+
+### RAG Pipeline Execution
+
+```python
+if __name__ == "__main__":
+    # Example usage
+    query = "What are deep agents?"
+    result = run_llm(query=query)
+    
+    print("Answer:", result["answer"])
+    print("\nContext Documents:")
+    for i, doc in enumerate(result["context"], 1):
+        print(f"{i}. Source: {doc.metadata.get('source', 'Unknown')}")
+        print(f"   Content: {doc.page_content[:200]}...")
+        print()
+```
+
+### Key Features
+
+- **Intelligent Retrieval**: Uses semantic similarity to find the most relevant documentation chunks
+- **Tool-Augmented Agent**: Leverages LangChain's agent framework with custom retrieval tools
+- **Source Attribution**: Always cites sources and provides context documents
+- **Error Handling**: Gracefully handles cases where information isn't found
+- **Structured Output**: Returns both the answer and supporting context documents
+
+### Usage Example
+
+```python
+# Query the RAG system
+result = run_llm("How do I create a custom agent in LangChain?")
+
+# Access the generated answer
+answer = result["answer"]
+
+# Access the source documents used for generation
+context_documents = result["context"]
+```
+
+This RAG implementation provides accurate, contextually-rich answers to questions about LangChain by retrieving relevant documentation chunks and using them to inform the AI's responses.
